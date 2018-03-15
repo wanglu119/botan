@@ -20,6 +20,33 @@ class BN_256_G2_Data;
 class BN_256_GT_Data;
 
 /**
+* BN_256 parameters
+*/
+#if 0
+class BOTAN_UNSTABLE_API BN_256_Params final : public Pairing_Params
+   {
+   public:
+      std::shared_ptr<const Montgomery_Params> monty_params() const;
+
+      const BigInt& order() const;
+
+      const GFp1& g1_curve_B() const;
+      const GFp2& g2_curve_B() const;
+
+      const GFp2& xi() const;
+      const std::vector<GFp2>& xi1() const;
+      const std::vector<GFp2>& xi2() const;
+
+      std::vector<int8_t> naf_6u_p_2() const;
+
+      uint64_t get_u() const;
+
+      std::shared_ptr<G1_Data> generator_g1() const;
+      std::shared_ptr<G2_Data> generator_g2() const;
+   };
+#endif
+
+/**
 * BN-256 curve compatible with dclxvi and Golang's bn256
 */
 class BOTAN_UNSTABLE_API BN_256 final

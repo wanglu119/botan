@@ -7,6 +7,7 @@
 #include <botan/bn256.h>
 #include <botan/bigint.h>
 #include <botan/numthry.h>
+#include <botan/monty.h>
 #include <vector>
 #include <sstream>
 
@@ -28,6 +29,12 @@ class Params
 
       // Just move all of these to GFp1??
 
+      static std::shared_ptr<Montgomery_Params> monty()
+         {
+         static std::shared_ptr<Montgomery_Params> monty = std::make_shared<Montgomery_Params>(p());
+         return monty;
+         }
+
       static BigInt inv_mod_p(const BigInt& x)
          {
          // return ct_inverse_mod_odd_modulus(x, p());
@@ -39,12 +46,6 @@ class Params
          static const BigInt p("0x8fb501e34aa387f9aa6fecb86184dc21ee5b88d120b5b59e185cac6c5e089667");
          return p;
          };
-
-      static const BigInt& order()
-         {
-         static const BigInt order("0x0x8fb501e34aa387f9aa6fecb86184dc22ae29838f49403218168a647d6464ba6d");
-         return order;
-         }
 
       static const BigInt& R1()
          {
@@ -79,20 +80,22 @@ class GFp1 final : public Params
    {
    public:
       GFp1(const BigInt& v, bool redc_needed = true) :
-         m_v(redc_needed ? redc(v * R2()) : v)
+         m_v(monty(), v, redc_needed)
          {
          }
 
-      GFp1(const uint8_t bits[]) : m_v(bits, 32)
+      GFp1(const uint8_t bits[]) : m_v(monty(), bits, 32)
          {
          }
+
+      GFp1(const Montgomery_Int& v) : m_v(v) {}
 
       bool operator==(const GFp1& other) const { return m_v == other.m_v; }
       bool operator!=(const GFp1& other) const { return !(*this == other); }
 
       static GFp1 one()
          {
-         return GFp1(R1(), false);
+         return GFp1(monty()->R1(), false);
          }
 
       static GFp1 zero()
@@ -114,72 +117,74 @@ class GFp1 final : public Params
          return v;
          }
 
-      bool is_one() const { return m_v == R1(); }
+      bool is_one() const { return m_v.is_one(); }
       bool is_zero() const { return m_v.is_zero(); }
 
-      BigInt value() const { return redc(m_v); }
+      BigInt value() const { return m_v.value(); }
 
       GFp1 operator+(const GFp1& other) const
          {
-         BigInt z = m_v + other.m_v;
-         if(z >= p())
-            z -= p();
-         return GFp1(z, false);
+         return GFp1(m_v + other.m_v);
          }
 
       GFp1 operator-(const GFp1& other) const
          {
-         BigInt z = m_v - other.m_v;
-         if(z < 0)
-            z += p();
-         return GFp1(z, false);
+         return GFp1(m_v - other.m_v);
          }
 
       GFp1& operator+=(const GFp1& other)
          {
          m_v += other.m_v;
-         if(m_v >= p())
-            m_v -= p();
          return (*this);
          }
 
       GFp1& operator-=(const GFp1& other)
          {
          m_v -= other.m_v;
-         if(m_v < 0)
-            m_v += p();
          return (*this);
          }
 
       GFp1 operator*(const GFp1& other) const
          {
-         return GFp1(redc(m_v * other.m_v), false);
+         return GFp1(m_v * other.m_v);
          }
 
       GFp1 operator*=(const GFp1& other)
          {
-         m_v = redc(m_v * other.m_v);
+         m_v *= other.m_v;
          return (*this);
          }
 
       GFp1 square() const
          {
-         // TODO optimize this
-         return (*this) * (*this);
+         secure_vector<word> ws;
+         return m_v.square(ws);
          }
 
-      GFp1 mul_2() const { return (*this) + (*this); }
-      GFp1 mul_3() const { return (*this) + mul_2(); }
+      GFp1 mul_2() const
+         {
+         secure_vector<word> ws;
+         GFp1 x = *this;
+         x.m_v.mul_by_2(ws);
+         return x;
+         }
+
+      GFp1 mul_3() const
+         {
+         secure_vector<word> ws;
+         GFp1 x = *this;
+         x.m_v.mul_by_3(ws);
+         return x;
+         }
 
       GFp1 inverse() const
          {
-         // Fermat
-         return GFp1(redc(R3() * inv_mod_p(m_v)), false);
+         return m_v.multiplicative_inverse();
          }
 
       GFp1 additive_inverse() const
          {
-         return GFp1(p()) - (*this);
+         return m_v.additive_inverse();
          }
 
       std::string to_string() const
@@ -191,21 +196,7 @@ class GFp1 final : public Params
 
    private:
 
-      BigInt redc(const BigInt& T) const
-         {
-         BigInt m = T;
-         m.mask_bits(256);
-         m *= N();
-         m.mask_bits(256);
-
-         m = (m*p() + T) >> 256;
-         if(m >= p())
-            m -= p();
-         return m;
-         }
-
-      // TODO represent as `uint64_t m_v[4]`
-      BigInt m_v;
+      Montgomery_Int m_v;
    };
 
 /*
@@ -1418,7 +1409,8 @@ BN_256::G2 BN_256::g2_generator() const
 
 const BigInt& BN_256::order() const
    {
-   return BN_256_Impl::Params::order();
+   static const BigInt order("0x0x8fb501e34aa387f9aa6fecb86184dc22ae29838f49403218168a647d6464ba6d");
+   return order;
    }
 
 BN_256::GT BN_256::pairing(const BN_256::G1& g1, const BN_256::G2& g2) const

@@ -650,7 +650,7 @@ class GFp12 final
 
       bool is_one() const
          {
-         return x().is_one() && y().is_one();
+         return x().is_zero() && y().is_one();
          }
 
       GFp12 conjugate() const

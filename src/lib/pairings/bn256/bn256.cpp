@@ -199,6 +199,181 @@ class GFp1 final : public Params
       Montgomery_Int m_v;
    };
 
+template<typename Field>
+class Field_2 final
+   {
+   public:
+      Field_2() :
+         m_x(Field::zero()),
+         m_y(Field::zero())
+         {}
+
+      Field_2(const Field& x, const Field& y) :
+         m_x(x),
+         m_y(y)
+         {}
+
+      Field_2(const uint8_t bits[]) :
+         m_x(bits),
+         m_y(bits + Field::size())
+         {
+         }
+
+      static Field_2 one()
+         {
+         return Field_2(Field::zero(), Field::one());
+         }
+
+      static Field_2 zero()
+         {
+         return Field_2(Field::zero(), Field::zero());
+         }
+
+      static size_t size() { return Field::size() * 2; }
+
+      const Field& x() const { return m_x; }
+      const Field& y() const { return m_y; }
+
+      bool operator==(const Field_2& other) const
+         {
+         return x() == other.x() && y() == other.y();
+         }
+
+      bool operator!=(const Field_2& other) const { return !(*this == other); }
+
+      bool is_one() const { return x().is_zero() && y().is_one(); }
+      bool is_zero() const { return x().is_zero() && y().is_zero(); }
+
+      Field_2 operator+(const Field_2& other) const
+         {
+         return Field_2(x() + other.x(), y() + other.y());
+         }
+
+      Field_2& operator+=(const Field_2& other)
+         {
+         m_x += other.x();
+         m_y += other.y();
+         return (*this);
+         }
+
+      Field_2 operator-(const Field_2& other) const
+         {
+         return Field_2(x() - other.x(), y() - other.y());
+         }
+
+      Field_2& operator-=(const Field_2& other)
+         {
+         m_x -= other.x();
+         m_y -= other.y();
+         return (*this);
+         }
+
+      Field_2 negate() const
+         {
+         return Field_2(x().additive_inverse(), y().additive_inverse());
+         }
+
+      Field_2 mul_2() const
+         {
+         return Field_2(x().mul_2(), y().mul_2());
+         }
+
+      Field_2 operator*(const Field_2& other) const
+         {
+         const Field vy = (y() * other.y());
+         const Field vx = (x() * other.x());
+         const Field c0 = (vy - vx);
+         const Field c1 = (x() + y())*(other.x() + other.y()) - (vy + vx);
+
+         return Field_2(c1, c0);
+         }
+
+      Field_2 operator*=(const Field_2& other)
+         {
+         *this = (*this * other);
+         return *this;
+         }
+
+      Field_2 operator*(const Field& scalar) const
+         {
+         return Field_2(x() * scalar, y() * scalar);
+         }
+
+      Field_2 square() const
+         {
+         // Complex squaring
+         const Field ty = y().square() - x().square();
+         const Field tx = (x() * y()).mul_2();
+         return Field_2(tx, ty);
+         }
+
+      Field_2 mul_xi() const
+         {
+         // (xi + y)(3 + i) = 3xi + 3y - x + yi = (3x + y)i + (3y - x)
+         const Field tx = x().mul_3() + y();
+         const Field ty = y().mul_3() - x();
+         return Field_2(tx, ty);
+         }
+
+      Field_2 inverse() const
+         {
+         // Algorithm 8 from http://eprint.iacr.org/2010/354.pdf
+         const Field t = x().square() + y().square();
+
+         const Field inv = t.inverse();
+
+         const Field c_x = (x().additive_inverse() * inv);
+         const Field c_y = (y() * inv);
+
+         return Field_2(c_x, c_y);
+         }
+
+      Field_2 exp(const BigInt& k) const
+         {
+         Field_2 R[2] = { Field_2::one(), *this };
+
+         const size_t k_bits = k.bits();
+
+         for(size_t i = 0; i != k_bits; ++i)
+            {
+            const uint8_t kb = k.get_bit(k_bits - 1 - i);
+            R[kb ^ 1] = R[kb] * R[kb ^ 1];
+            R[kb] = R[kb].square();
+            }
+         return R[0];
+         }
+
+      Field_2 conjugate() const
+         {
+         return Field_2(x().additive_inverse(), y());
+         }
+
+      Field_2 mul_conjugate() const
+         {
+         return (*this) * conjugate();
+         }
+
+      std::string to_string() const
+         {
+         std::ostringstream oss;
+         oss << "(" << x().value() << "," << y().value() << ")";
+         return oss.str();
+         }
+
+      std::vector<uint8_t> serialize() const
+         {
+         std::vector<uint8_t> v;
+         v.reserve(2 * Field::size());
+         v += x().serialize();
+         v += y().serialize();
+         return v;
+         }
+
+   private:
+      Field m_x, m_y;
+   };
+
+
 /*
 Represented as i*x + y
 */

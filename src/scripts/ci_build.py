@@ -46,7 +46,7 @@ def determine_flags(target, target_os, target_cpu, target_cc, cc_bin, ccache, ro
 
     make_prefix = []
     test_prefix = []
-    test_cmd = [os.path.join(root_dir, 'botan-test')]
+    test_cmd = ['make', 'test']
 
     fast_tests = ['block', 'aead', 'hash', 'stream', 'mac', 'modes',
                   'hmac_drbg', 'hmac_drbg_unit',
@@ -71,10 +71,8 @@ def determine_flags(target, target_os, target_cpu, target_cc, cc_bin, ccache, ro
     if target in ['mini-static', 'mini-shared']:
         flags += ['--minimized-build', '--enable-modules=system_rng,sha2_32,sha2_64,aes']
 
-    if target == 'shared' and target_os != 'osx':
-        # Enabling amalgamation build for shared is somewhat arbitrary, but we want to test it
-        # somewhere. In addition the majority of the Windows builds are shared, and MSVC is
-        # much faster compiling via the amalgamation than individual files.
+    if (target_os == 'windows' and target == 'shared') or\
+       (target_os == 'linux' and target == 'static'):
         flags += ['--amalgamation']
 
     if target in ['bsi', 'nist']:
@@ -373,6 +371,7 @@ def main(args=None):
             'configure.py',
             'src/python/botan2.py',
             'src/scripts/ci_build.py',
+            'src/scripts/run_tests.py',
             'src/scripts/install.py',
             'src/scripts/dist.py',
             'src/scripts/cleanup.py',

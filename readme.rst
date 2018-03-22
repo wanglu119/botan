@@ -42,11 +42,9 @@ For all the details on building the library, read the
   $ ./configure.py --help
   $ ./configure.py [probably some options]
   $ make
-  $ ./botan-test
-  # lots of output...
+  $ make test
+  ...
   Tests all ok
-  $ ./botan
-  # shows available commands
   $ make install
 
 Botan can also be built into a single-file amalgamation for easy inclusion into

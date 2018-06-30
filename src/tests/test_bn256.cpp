@@ -24,9 +24,9 @@ class BN256_KAT : public Text_Based_Test
          {
          Test::Result result("BN256");
 
-         const BigInt k1 = get_req_bn(vars, "K1");
-         const BigInt k2 = get_req_bn(vars, "K2");
-         const BigInt k3 = get_req_bn(vars, "K3");
+         const BigInt k1 = vars.get_req_bn("K1");
+         const BigInt k2 = vars.get_req_bn("K2");
+         const BigInt k3 = vars.get_req_bn("K3");
 
          Botan::BN_256 bn256;
 
@@ -38,9 +38,9 @@ class BN256_KAT : public Text_Based_Test
          result.confirm("p2 valid", p2.valid_element());
          result.confirm("p3 valid", p3.valid_element());
 
-         result.test_eq("p1 kat", p1.serialize(), get_req_bin(vars, "P1"));
-         result.test_eq("p2 kat", p2.serialize(), get_req_bin(vars, "P2"));
-         result.test_eq("p3 kat", p3.serialize(), get_req_bin(vars, "P3"));
+         result.test_eq("p1 kat", p1.serialize(), vars.get_req_bin("P1"));
+         result.test_eq("p2 kat", p2.serialize(), vars.get_req_bin("P2"));
+         result.test_eq("p3 kat", p3.serialize(), vars.get_req_bin("P3"));
 
          const Botan::BN_256::G2 q1 = bn256.g2_generator() * k1;
          const Botan::BN_256::G2 q2 = bn256.g2_generator() * k2;
@@ -50,9 +50,9 @@ class BN256_KAT : public Text_Based_Test
          result.confirm("q2 valid", q2.valid_element());
          result.confirm("q3 valid", q3.valid_element());
 
-         result.test_eq("q1 kat", q1.serialize(), get_req_bin(vars, "Q1"));
-         result.test_eq("q2 kat", q2.serialize(), get_req_bin(vars, "Q2"));
-         result.test_eq("q3 kat", q3.serialize(), get_req_bin(vars, "Q3"));
+         result.test_eq("q1 kat", q1.serialize(), vars.get_req_bin("Q1"));
+         result.test_eq("q2 kat", q2.serialize(), vars.get_req_bin("Q2"));
+         result.test_eq("q3 kat", q3.serialize(), vars.get_req_bin("Q3"));
 
          const Botan::BN_256::GT r1 = bn256.pairing(p2, q3) * k1;
 
@@ -66,7 +66,7 @@ class BN256_KAT : public Text_Based_Test
          result.test_eq("r1 == r2", r1_vec, r2_vec);
          result.test_eq("r1 == r3", r1_vec, r3_vec);
 
-         result.test_eq("Pairing matches expected", r1_vec, get_req_bin(vars, "R"));
+         result.test_eq("Pairing matches expected", r1_vec, vars.get_req_bin("R"));
 
          return result;
          }

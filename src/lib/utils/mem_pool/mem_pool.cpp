@@ -281,6 +281,7 @@ Memory_Pool::Memory_Pool(const std::vector<void*>& pages, size_t page_size) :
    {
    for(size_t i = 0; i != pages.size(); ++i)
       {
+      clear_bytes(pages[i], m_page_size);
       m_free_pages.push_back(static_cast<uint8_t*>(pages[i]));
       }
    }
@@ -296,30 +297,30 @@ void* Memory_Pool::allocate(size_t n)
 
    const size_t n_bucket = choose_bucket(n);
 
-   if(n_bucket == 0)
-      return nullptr;
-
-   lock_guard_type<mutex_type> lock(m_mutex);
-
-   std::deque<Bucket>& buckets = m_buckets_for[n_bucket];
-
-   for(auto& bucket : buckets)
+   if(n_bucket > 0)
       {
-      if(uint8_t* p = bucket.alloc())
+      lock_guard_type<mutex_type> lock(m_mutex);
+
+      std::deque<Bucket>& buckets = m_buckets_for[n_bucket];
+
+      for(auto& bucket : buckets)
+         {
+         if(uint8_t* p = bucket.alloc())
+            return p;
+
+         // If the bucket is full, maybe move it to the end of the list?
+         // Otoh bucket search should be very fast
+         }
+
+      if(m_free_pages.size() > 0)
+         {
+         uint8_t* ptr = m_free_pages[0];
+         m_free_pages.pop_front();
+         buckets.push_front(Bucket(ptr, m_page_size, n_bucket));
+         void* p = buckets[0].alloc();
+         BOTAN_ASSERT_NOMSG(p != nullptr);
          return p;
-
-      // If the bucket is full, maybe move it to the end of the list?
-      // Otoh bucket search should be very fast
-      }
-
-   if(m_free_pages.size() > 0)
-      {
-      uint8_t* ptr = m_free_pages[0];
-      m_free_pages.pop_front();
-      buckets.push_front(Bucket(ptr, m_page_size, n_bucket));
-      void* p = buckets[0].alloc();
-      BOTAN_ASSERT_NOMSG(p != nullptr);
-      return p;
+         }
       }
 
    // out of room

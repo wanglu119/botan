@@ -14,18 +14,16 @@ namespace Botan {
 *
 * This allocator is not useful for general purpose but works well within the
 * context of allocating cryptographic keys. It makes several assumptions which
-* don't work for a malloc but simplify and speed up the implementation:
+* don't work for implementing malloc but simplify and speed up the implementation:
 *
-* - There is a single fixed block of memory, which cannot be expanded.  This is
-*   the block that was allocated, mlocked and passed to the Memory_Pool
-*   constructor. It is assumed to be page-aligned.
+* - There is some set of pages, which cannot be expanded later. These are pages
+*   which were allocated, mlocked and passed to the Memory_Pool constructor.
 *
 * - The allocator is allowed to return null anytime it feels like not servicing
 *   a request, in which case the request will be sent to calloc instead. In
-*   particular values which are too small or too large are given to calloc.
+*   particular, requests which are too small or too large are rejected.
 *
-* - Most allocations are powers of 2, the remainder are usually a multiple of 4
-*   or 8.
+* - Most allocations are powers of 2, the remainder are usually a multiple of 8
 *
 * - Free requests include the size of the allocation, so there is no need to
 *   track this within the pool.
@@ -33,10 +31,10 @@ namespace Botan {
 * - Alignment is important to the caller. For this allocator, any allocation of
 *   size N is aligned evenly at N bytes.
 *
-* The block of memory is split up into pages. Initially each page is in the free
-* page list. Each page is used for just one size of allocation, with requests
-* bucketed into a small number of common sizes. If the allocation would be too
-* big, too small, or with too much slack, it is rejected by the pool.
+* Initially each page is in the free page list. Each page is used for just one
+* size of allocation, with requests bucketed into a small number of common
+* sizes. If the allocation would be too big, too small, or with too much slack,
+* it is rejected by the pool.
 *
 * The free list is maintained by a bitmap, one per page/Bucket. Since each
 * Bucket only maintains objects of a single size, each bit set or clear
@@ -66,7 +64,7 @@ namespace {
 size_t choose_bucket(size_t n)
    {
    const size_t MINIMUM_ALLOCATION = 16;
-   const size_t MAXIMUM_ALLOCATION = 512;
+   const size_t MAXIMUM_ALLOCATION = 256;
    const size_t MAXIMUM_SLACK = 31;
 
    if(n < MINIMUM_ALLOCATION|| n > MAXIMUM_ALLOCATION)
@@ -74,7 +72,7 @@ size_t choose_bucket(size_t n)
 
    // Need to tune these
    const size_t buckets[] = {
-      16, 24, 32, 48, 64, 80, 96, 112, 128, 160, 192, 256, 320, 384, 448, 512, 0
+      16, 24, 32, 48, 64, 80, 96, 112, 128, 160, 192, 256, 0,
    };
 
    for(size_t i = 0; buckets[i]; ++i)
@@ -264,6 +262,12 @@ bool Bucket::free(void* p)
    if(!in_this_bucket(p))
       return false;
 
+   /*
+   Zero also any trailing bytes, which should not have been written to,
+   but maybe the user was bad and wrote past the end.
+   */
+   std::memset(p, 0, m_item_size);
+
    const size_t offset = (reinterpret_cast<uintptr_t>(p) - reinterpret_cast<uintptr_t>(m_range)) / m_item_size;
 
    m_bitmap.free(offset);
@@ -272,20 +276,12 @@ bool Bucket::free(void* p)
    return true;
    }
 
-Memory_Pool::Memory_Pool(uint8_t* pool, size_t num_pages, size_t page_size) :
+Memory_Pool::Memory_Pool(const std::vector<void*>& pages, size_t page_size) :
    m_page_size(page_size)
    {
-   BOTAN_ARG_CHECK(pool != nullptr, "Memory_Pool pool was null");
-
-   // This is basically just to verify that the range is valid
-   clear_mem(pool, num_pages * page_size);
-
-   m_pool = pool;
-   m_pool_size = num_pages * page_size;
-
-   for(size_t i = 0; i != num_pages; ++i)
+   for(size_t i = 0; i != pages.size(); ++i)
       {
-      m_free_pages.push_back(pool + page_size*i);
+      m_free_pages.push_back(static_cast<uint8_t*>(pages[i]));
       }
    }
 
@@ -332,19 +328,10 @@ void* Memory_Pool::allocate(size_t n)
 
 bool Memory_Pool::deallocate(void* p, size_t len) noexcept
    {
-   if(!ptr_in_pool(m_pool, m_pool_size, p, len))
-      return false;
-
    const size_t n_bucket = choose_bucket(len);
 
    if(n_bucket != 0)
       {
-      /*
-      Zero also any trailing bytes, which should not have been written to,
-      but maybe the user was bad and wrote past the end.
-      */
-      std::memset(p, 0, n_bucket);
-
       lock_guard_type<mutex_type> lock(m_mutex);
 
       std::deque<Bucket>& buckets = m_buckets_for[n_bucket];
@@ -352,43 +339,21 @@ bool Memory_Pool::deallocate(void* p, size_t len) noexcept
       for(size_t i = 0; i != buckets.size(); ++i)
          {
          Bucket& bucket = buckets[i];
-         if(bucket.free(p) == false)
-            continue;
-
-         if(bucket.empty())
+         if(bucket.free(p))
             {
-            m_free_pages.push_back(bucket.ptr());
+            if(bucket.empty())
+               {
+               m_free_pages.push_back(bucket.ptr());
 
-            if(i != buckets.size() - 1)
-               std::swap(buckets.back(), buckets[i]);
-            buckets.pop_back();
+               if(i != buckets.size() - 1)
+                  std::swap(buckets.back(), buckets[i]);
+               buckets.pop_back();
+               }
+            return true;
             }
-
-         return true;
          }
       }
 
-   /*
-   * If we reach this point, something bad has occurred. We know the pointer
-   * passed in is inside the range of the pool, but no bucket recognized it,
-   * either because n_bucket was zero or no Bucket::free call returned true. Our
-   * options (since this function is noexcept) are to either ignore it and
-   * return false, ignore it and return true, or to crash.
-   *
-   * Returning false means the pointer will be considered a standard heap
-   * pointer and passed on to free, which will almost certainly cause a heap
-   * corruption.
-   *
-   * There is some robustness argument for just memseting the pointer and
-   * returning true. In this case it will be assumed to be freed. But, since
-   * this pointer *is* within the range of the pool, but no bucket claimed it,
-   * that seems to indicate some existing allocator corruption.
-   *
-   * Crashing is bad, heap corruption is worse. So we crash, in this case by
-   * calling BOTAN_ASSERT and letting the exception handling mechanism
-   * terminate the process.
-   */
-   BOTAN_ASSERT(false, "Pointer from pool, but no bucket recognized it");
    return false;
    }
 

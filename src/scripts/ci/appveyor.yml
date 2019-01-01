@@ -39,6 +39,12 @@ environment:
       TARGET: sanitizer
       APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
 
+    # MSVC 2019 shared
+    - MSVS: 2019
+      PLATFORM: x86_amd64
+      TARGET: shared
+      APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019 Preview
+
 install:
   - call src\scripts\ci\setup_appveyor.bat
 
@@ -50,3 +56,4 @@ branches:
   only:
     - master
     - release-2
+    - vc2019
